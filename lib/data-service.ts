@@ -418,6 +418,206 @@ export async function getKnowledgeCircles() {
   return circles as KnowledgeCircle[]
 }
 
+// Enhanced project functions for database persistence
+export async function createProject(projectData: {
+  name: string
+  description: string
+  start_date: string
+  end_date?: string
+  status?: string
+}) {
+  const supabase = getSupabaseClient()
+
+  const { data, error } = await supabase
+    .from("projects")
+    .insert({
+      ...projectData,
+      status: projectData.status || "active",
+    })
+    .select()
+    .single()
+
+  return { data, error }
+}
+
+export async function addProjectMember(projectId: string, userId: string, role: string) {
+  const supabase = getSupabaseClient()
+
+  const { data, error } = await supabase
+    .from("project_members")
+    .insert({
+      project_id: projectId,
+      user_id: userId,
+      role: role,
+    })
+    .select()
+    .single()
+
+  return { data, error }
+}
+
+export async function getProjectsWithMembers() {
+  const supabase = getSupabaseClient()
+
+  const { data, error } = await supabase
+    .from("projects")
+    .select(`
+      *,
+      project_members(
+        id,
+        role,
+        user:profiles(id, full_name, avatar_url, role)
+      )
+    `)
+    .order("created_at", { ascending: false })
+
+  if (error) {
+    console.error("Error fetching projects with members:", error)
+    return []
+  }
+
+  return data as (Project & {
+    project_members: Array<{
+      id: string
+      role: string
+      user: {
+        id: string
+        full_name: string
+        avatar_url?: string
+        role?: string
+      }
+    }>
+  })[]
+}
+
+export async function updateProject(projectId: string, updates: Partial<Project>) {
+  const supabase = getSupabaseClient()
+
+  const { data, error } = await supabase.from("projects").update(updates).eq("id", projectId).select().single()
+
+  return { data, error }
+}
+
+export async function deleteProject(projectId: string) {
+  const supabase = getSupabaseClient()
+
+  const { error } = await supabase.from("projects").delete().eq("id", projectId)
+
+  return { error }
+}
+
+// Enhanced user skills functions
+export async function saveUserSkills(
+  skills: Array<{
+    skill_id: string
+    level: number
+    interest: number
+    is_priority?: boolean
+  }>,
+) {
+  const supabase = getSupabaseClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) return { error: "Not authenticated" }
+
+  const skillsWithUserId = skills.map((skill) => ({
+    ...skill,
+    user_id: user.id,
+    last_assessed: new Date().toISOString(),
+  }))
+
+  const { data, error } = await supabase
+    .from("user_skills")
+    .upsert(skillsWithUserId, {
+      onConflict: "user_id,skill_id",
+    })
+    .select()
+
+  return { data, error }
+}
+
+// Enhanced assessment functions
+export async function saveAssessmentResults(
+  assessmentId: string,
+  skills: Array<{
+    skill_id: string
+    level: number
+    interest: number
+    is_priority?: boolean
+  }>,
+  completionTime: number,
+) {
+  const supabase = getSupabaseClient()
+
+  try {
+    // Save user skills
+    const { error: skillsError } = await saveUserSkills(skills)
+    if (skillsError) throw skillsError
+
+    // Complete the assessment
+    const { data, error } = await completeAssessment(assessmentId, skills.length, completionTime)
+
+    return { data, error }
+  } catch (error) {
+    console.error("Error saving assessment results:", error)
+    return { data: null, error }
+  }
+}
+
+// Statistics functions
+export async function getUserStatistics() {
+  const supabase = getSupabaseClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) return null
+
+  try {
+    // Get user skills count
+    const { count: skillsCount } = await supabase
+      .from("user_skills")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", user.id)
+
+    // Get assessments count
+    const { count: assessmentsCount } = await supabase
+      .from("assessments")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .eq("status", "completed")
+
+    // Get projects count
+    const { count: projectsCount } = await supabase
+      .from("project_members")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", user.id)
+
+    // Get pending reviews count
+    const { count: pendingReviewsCount } = await supabase
+      .from("peer_reviews")
+      .select("*", { count: "exact", head: true })
+      .eq("reviewer_id", user.id)
+      .in("status", ["pending", "in_progress"])
+
+    return {
+      skillsCount: skillsCount || 0,
+      assessmentsCount: assessmentsCount || 0,
+      projectsCount: projectsCount || 0,
+      pendingReviewsCount: pendingReviewsCount || 0,
+    }
+  } catch (error) {
+    console.error("Error fetching user statistics:", error)
+    return {
+      skillsCount: 0,
+      assessmentsCount: 0,
+      projectsCount: 0,
+      pendingReviewsCount: 0,
+    }
+  }
+}
 // Projects functions
 export async function getUserProjects() {
   const supabase = getSupabaseClient()
