@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/contexts/auth-context"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -54,6 +54,7 @@ export default function SeedbleSkillsDashboard() {
   const [knowledgeCircles, setKnowledgeCircles] = useState<KnowledgeCircle[]>([])
   const [isDataLoading, setIsDataLoading] = useState(true)
   const [showAssessmentWizard, setShowAssessmentWizard] = useState(false)
+  const hasInitialized = useRef(false)
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -64,7 +65,7 @@ export default function SeedbleSkillsDashboard() {
 
   // Fetch user data
   useEffect(() => {
-    if (user) {
+    if (user && !hasInitialized.current) {
       const fetchData = async () => {
         setIsDataLoading(true)
 
@@ -73,6 +74,7 @@ export default function SeedbleSkillsDashboard() {
 
           setUserSkills(skills)
           setKnowledgeCircles(circles)
+          hasInitialized.current = true
         } catch (error) {
           console.error("Error fetching user data:", error)
         } finally {
@@ -84,7 +86,7 @@ export default function SeedbleSkillsDashboard() {
     }
   }, [user])
 
-  const refreshUserData = async () => {
+  const refreshUserData = useCallback(async () => {
     if (user) {
       setIsDataLoading(true)
       try {
@@ -97,12 +99,12 @@ export default function SeedbleSkillsDashboard() {
         setIsDataLoading(false)
       }
     }
-  }
+  }, [user])
 
-  const handleAssessmentComplete = () => {
+  const handleAssessmentComplete = useCallback(() => {
     setShowAssessmentWizard(false)
     refreshUserData()
-  }
+  }, [refreshUserData])
 
   // Process skills data for display
   const processedSkillsData = [
@@ -139,7 +141,7 @@ export default function SeedbleSkillsDashboard() {
   ]
 
   // Loading state
-  if (isLoading || !user) {
+  if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-blue-50">
         <div className="text-center">
@@ -149,6 +151,19 @@ export default function SeedbleSkillsDashboard() {
       </div>
     )
   }
+
+  // Redirect to login if not authenticated
+  if (!user) {
+    console.log("No user, redirecting to sign in...")
+    router.push("/auth/sign-in")
+    return null
+  }
+
+  // Log successful authentication
+  console.log("User authenticated:", {
+    userId: user.id,
+    email: user.email
+  })
 
   return (
     <div className="flex h-screen bg-gradient-to-br from-purple-50 to-blue-50">

@@ -78,14 +78,20 @@ export async function createSkillIfNotExists(skillName: string, category: "techn
 
 export async function getUserSkills(userId?: string) {
   const supabase = getSupabaseClient()
+  console.log("Getting user skills...")
+  
   const {
     data: { user },
   } = await supabase.auth.getUser()
 
   const targetUserId = userId || user?.id
 
-  if (!targetUserId) return []
+  if (!targetUserId) {
+    console.log("No user ID available")
+    return []
+  }
 
+  console.log("Fetching skills for user:", targetUserId)
   const { data, error } = await supabase
     .from("user_skills")
     .select(`
@@ -99,6 +105,7 @@ export async function getUserSkills(userId?: string) {
     return []
   }
 
+  console.log("Successfully fetched user skills:", data?.length || 0)
   return data as (UserSkill & { skill: Skill })[]
 }
 
@@ -150,12 +157,18 @@ export async function updateUserSkill(skillData: Partial<UserSkill>) {
 // Assessment functions
 export async function getUserAssessments() {
   const supabase = getSupabaseClient()
+  console.log("Getting user assessments...")
+  
   const {
     data: { user },
   } = await supabase.auth.getUser()
 
-  if (!user) return []
+  if (!user) {
+    console.log("No authenticated user found")
+    return []
+  }
 
+  console.log("Fetching assessments for user:", user.id)
   const { data, error } = await supabase
     .from("assessments")
     .select("*")
@@ -167,6 +180,7 @@ export async function getUserAssessments() {
     return []
   }
 
+  console.log("Successfully fetched assessments:", data?.length || 0)
   return data as Assessment[]
 }
 
@@ -573,43 +587,76 @@ export async function getUserStatistics() {
     data: { user },
   } = await supabase.auth.getUser()
 
-  if (!user) return null
+  if (!user) {
+    console.log("No authenticated user found")
+    return null
+  }
+
+  console.log("Fetching statistics for user:", user.id)
 
   try {
     // Get user skills count
-    const { count: skillsCount } = await supabase
+    console.log("Fetching skills count...")
+    const { count: skillsCount, error: skillsError } = await supabase
       .from("user_skills")
       .select("*", { count: "exact", head: true })
       .eq("user_id", user.id)
 
+    if (skillsError) {
+      console.error("Error fetching skills count:", skillsError)
+      throw skillsError
+    }
+
     // Get assessments count
-    const { count: assessmentsCount } = await supabase
+    console.log("Fetching assessments count...")
+    const { count: assessmentsCount, error: assessmentsError } = await supabase
       .from("assessments")
       .select("*", { count: "exact", head: true })
       .eq("user_id", user.id)
       .eq("status", "completed")
 
+    if (assessmentsError) {
+      console.error("Error fetching assessments count:", assessmentsError)
+      throw assessmentsError
+    }
+
     // Get projects count
-    const { count: projectsCount } = await supabase
+    console.log("Fetching projects count...")
+    const { count: projectsCount, error: projectsError } = await supabase
       .from("project_members")
       .select("*", { count: "exact", head: true })
       .eq("user_id", user.id)
 
+    if (projectsError) {
+      console.error("Error fetching projects count:", projectsError)
+      throw projectsError
+    }
+
     // Get pending reviews count
-    const { count: pendingReviewsCount } = await supabase
+    console.log("Fetching pending reviews count...")
+    const { count: pendingReviewsCount, error: reviewsError } = await supabase
       .from("peer_reviews")
       .select("*", { count: "exact", head: true })
       .eq("reviewer_id", user.id)
       .in("status", ["pending", "in_progress"])
 
-    return {
+    if (reviewsError) {
+      console.error("Error fetching pending reviews count:", reviewsError)
+      throw reviewsError
+    }
+
+    const stats = {
       skillsCount: skillsCount || 0,
       assessmentsCount: assessmentsCount || 0,
       projectsCount: projectsCount || 0,
       pendingReviewsCount: pendingReviewsCount || 0,
     }
+
+    console.log("Successfully fetched all statistics:", stats)
+    return stats
   } catch (error) {
-    console.error("Error fetching user statistics:", error)
+    console.error("Error in getUserStatistics:", error)
+    // Return default values instead of throwing
     return {
       skillsCount: 0,
       assessmentsCount: 0,
