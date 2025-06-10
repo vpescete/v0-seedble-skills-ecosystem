@@ -1,6 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
+import { useRouter } from "next/navigation"
+import { useAuth } from "@/contexts/auth-context"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -12,6 +14,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { SkillAnalytics } from "@/components/skill-analytics"
 import { PeerReviewWorkflow } from "@/components/peer-review-workflow"
 import { ReviewManagement } from "@/components/review-management"
+import { AssessmentDashboard } from "@/components/assessment-dashboard"
+import { ProjectManagement } from "@/components/project-management"
+import { SkillAssessmentWizard } from "@/components/skill-assessment-wizard"
+import { getUserSkills, getKnowledgeCircles } from "@/lib/data-service"
+import type { Skill, UserSkill, KnowledgeCircle } from "@/lib/types"
 import {
   BookOpen,
   Brain,
@@ -21,7 +28,10 @@ import {
   ChevronRight,
   Code,
   Filter,
+  FolderOpen,
   Home,
+  Loader2,
+  LogOut,
   MessageSquare,
   Search,
   Settings,
@@ -32,32 +42,97 @@ import {
   Users,
   Zap,
 } from "lucide-react"
+import { NotificationSystem } from "@/components/notification-system"
+import { TeamDashboard } from "@/components/team-dashboard"
 
 export default function SeedbleSkillsDashboard() {
+  const { user, profile, isLoading, signOut } = useAuth()
+  const router = useRouter()
   const [selectedDate, setSelectedDate] = useState(15)
   const [activeView, setActiveView] = useState("dashboard")
+  const [userSkills, setUserSkills] = useState<(UserSkill & { skill: Skill })[]>([])
+  const [knowledgeCircles, setKnowledgeCircles] = useState<KnowledgeCircle[]>([])
+  const [isDataLoading, setIsDataLoading] = useState(true)
+  const [showAssessmentWizard, setShowAssessmentWizard] = useState(false)
+  const hasInitialized = useRef(false)
 
-  const skillsData = [
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!isLoading && !user) {
+      router.push("/auth/sign-in")
+    }
+  }, [isLoading, user, router])
+
+  // Fetch user data
+  useEffect(() => {
+    if (user && !hasInitialized.current) {
+      const fetchData = async () => {
+        setIsDataLoading(true)
+
+        try {
+          const [skills, circles] = await Promise.all([getUserSkills(), getKnowledgeCircles()])
+
+          setUserSkills(skills)
+          setKnowledgeCircles(circles)
+          hasInitialized.current = true
+        } catch (error) {
+          console.error("Error fetching user data:", error)
+        } finally {
+          setIsDataLoading(false)
+        }
+      }
+
+      fetchData()
+    }
+  }, [user])
+
+  const refreshUserData = useCallback(async () => {
+    if (user) {
+      setIsDataLoading(true)
+      try {
+        const [skills, circles] = await Promise.all([getUserSkills(), getKnowledgeCircles()])
+        setUserSkills(skills)
+        setKnowledgeCircles(circles)
+      } catch (error) {
+        console.error("Error refreshing user data:", error)
+      } finally {
+        setIsDataLoading(false)
+      }
+    }
+  }, [user])
+
+  const handleAssessmentComplete = useCallback(() => {
+    setShowAssessmentWizard(false)
+    refreshUserData()
+  }, [refreshUserData])
+
+  // Process skills data for display
+  const processedSkillsData = [
     {
       category: "Technical Skills",
-      skills: [
-        { name: "React/Next.js", level: 4, trend: "up", projects: 8 },
-        { name: "Python", level: 3, trend: "stable", projects: 5 },
-        { name: "Machine Learning", level: 2, trend: "up", projects: 3 },
-        { name: "DevOps", level: 3, trend: "up", projects: 6 },
-      ],
+      skills: userSkills
+        .filter((item) => item.skill.category === "technical")
+        .map((item) => ({
+          name: item.skill.name,
+          level: item.level,
+          trend: "up", // This would come from historical data in a real app
+          projects: Math.floor(Math.random() * 10) + 1, // Placeholder
+        })),
     },
     {
       category: "Soft Skills",
-      skills: [
-        { name: "Leadership", level: 4, trend: "up", projects: 12 },
-        { name: "Communication", level: 5, trend: "stable", projects: 15 },
-        { name: "Problem Solving", level: 4, trend: "up", projects: 10 },
-        { name: "Team Management", level: 3, trend: "up", projects: 7 },
-      ],
+      skills: userSkills
+        .filter((item) => item.skill.category === "soft")
+        .map((item) => ({
+          name: item.skill.name,
+          level: item.level,
+          trend: Math.random() > 0.5 ? "up" : "stable", // Placeholder
+          projects: Math.floor(Math.random() * 15) + 1, // Placeholder
+        })),
     },
   ]
 
+  // Sample online users (would come from Supabase presence in a real app)
   const onlineUsers = [
     { name: "Marco Rossi", role: "Senior Developer", avatar: "MR", status: "online" },
     { name: "Anna Bianchi", role: "UX Designer", avatar: "AB", status: "online" },
@@ -65,29 +140,30 @@ export default function SeedbleSkillsDashboard() {
     { name: "Sofia Neri", role: "Data Scientist", avatar: "SN", status: "online" },
   ]
 
-  const knowledgeCircles = [
-    {
-      title: "AI & Machine Learning",
-      description: "Exploring latest trends in artificial intelligence and ML applications",
-      members: 24,
-      icon: Brain,
-      color: "bg-purple-500",
-    },
-    {
-      title: "Frontend Development",
-      description: "Modern web development practices and frameworks",
-      members: 18,
-      icon: Code,
-      color: "bg-blue-500",
-    },
-    {
-      title: "Leadership & Management",
-      description: "Developing leadership skills and management techniques",
-      members: 31,
-      icon: Target,
-      color: "bg-green-500",
-    },
-  ]
+  // Loading state
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-blue-50">
+        <div className="text-center">
+          <Loader2 className="w-10 h-10 mx-auto mb-4 animate-spin text-purple-600" />
+          <p className="text-gray-600">Loading Seedble Skills Ecosystem...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Redirect to login if not authenticated
+  if (!user) {
+    console.log("No user, redirecting to sign in...")
+    router.push("/auth/sign-in")
+    return null
+  }
+
+  // Log successful authentication
+  console.log("User authenticated:", {
+    userId: user.id,
+    email: user.email
+  })
 
   return (
     <div className="flex h-screen bg-gradient-to-br from-purple-50 to-blue-50">
@@ -111,11 +187,19 @@ export default function SeedbleSkillsDashboard() {
           </Button>
           <Button
             variant="ghost"
-            className={`w-full justify-start text-white hover:bg-white/20 ${activeView === "skills" ? "bg-white/10" : ""}`}
-            onClick={() => setActiveView("skills")}
+            className={`w-full justify-start text-white hover:bg-white/20 ${activeView === "assessment" ? "bg-white/10" : ""}`}
+            onClick={() => setActiveView("assessment")}
           >
             <BookOpen className="w-4 h-4 mr-3" />
-            My Skills
+            Skills Assessment
+          </Button>
+          <Button
+            variant="ghost"
+            className={`w-full justify-start text-white hover:bg-white/20 ${activeView === "projects" ? "bg-white/10" : ""}`}
+            onClick={() => setActiveView("projects")}
+          >
+            <FolderOpen className="w-4 h-4 mr-3" />
+            Projects
           </Button>
           <Button
             variant="ghost"
@@ -154,6 +238,13 @@ export default function SeedbleSkillsDashboard() {
             Settings
           </Button>
         </nav>
+
+        <div className="mt-auto pt-6">
+          <Button variant="ghost" className="w-full justify-start text-white hover:bg-white/20" onClick={signOut}>
+            <LogOut className="w-4 h-4 mr-3" />
+            Sign Out
+          </Button>
+        </div>
       </div>
 
       {/* Main Content */}
@@ -162,25 +253,61 @@ export default function SeedbleSkillsDashboard() {
         <header className="bg-white border-b border-gray-200 p-6">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-2xl font-bold text-gray-900">Skills Dashboard</h2>
-              <p className="text-gray-600">Manage and develop your professional competencies</p>
+              <h2 className="text-2xl font-bold text-gray-900">
+                {activeView === "dashboard" && "Skills Dashboard"}
+                {activeView === "assessment" && "Skills Assessment"}
+                {activeView === "projects" && "Project Management"}
+                {activeView === "knowledge" && "Knowledge Circles"}
+                {activeView === "reviews" && "Peer Reviews"}
+                {activeView === "management" && "Review Management"}
+              </h2>
+              <p className="text-gray-600">
+                {activeView === "dashboard" && "Manage and develop your professional competencies"}
+                {activeView === "assessment" && "Evaluate and track your skills with AI guidance"}
+                {activeView === "projects" && "Create and manage projects with AI-powered team recommendations"}
+                {activeView === "knowledge" && "Connect with communities of practice"}
+                {activeView === "reviews" && "Structured competency evaluation and feedback"}
+                {activeView === "management" && "Oversee and validate peer review processes"}
+              </p>
             </div>
             <div className="flex items-center gap-4">
               <div className="relative">
                 <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-                <Input placeholder="Search skills..." className="pl-10 w-64" />
+                <Input placeholder="Search..." className="pl-10 w-64" />
               </div>
-              <Avatar>
-                <AvatarImage src="/placeholder-user.jpg" />
-                <AvatarFallback>CE</AvatarFallback>
-              </Avatar>
+              <NotificationSystem />
+              {activeView === "assessment" && (
+                <Button onClick={() => setShowAssessmentWizard(true)} className="bg-purple-600 hover:bg-purple-700">
+                  <Target className="w-4 h-4 mr-2" />
+                  New Assessment
+                </Button>
+              )}
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium">{profile?.full_name}</span>
+                <Avatar>
+                  <AvatarImage src={profile?.avatar_url || ""} />
+                  <AvatarFallback>
+                    {profile?.full_name
+                      ?.split(" ")
+                      .map((n) => n[0])
+                      .join("")}
+                  </AvatarFallback>
+                </Avatar>
+              </div>
             </div>
           </div>
         </header>
 
         {/* Content */}
         <div className="flex-1 p-6 overflow-auto">
-          {activeView === "dashboard" && (
+          {isDataLoading ? (
+            <div className="flex items-center justify-center h-full">
+              <div className="text-center">
+                <Loader2 className="w-8 h-8 mx-auto mb-4 animate-spin text-purple-600" />
+                <p className="text-gray-600">Loading your data...</p>
+              </div>
+            </div>
+          ) : activeView === "dashboard" ? (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Main Skills Section */}
               <div className="lg:col-span-2 space-y-6">
@@ -216,15 +343,16 @@ export default function SeedbleSkillsDashboard() {
 
                 {/* Skills Categories */}
                 <Tabs defaultValue="overview" className="w-full">
-                  <TabsList className="grid w-full grid-cols-4">
+                  <TabsList className="grid w-full grid-cols-5">
                     <TabsTrigger value="overview">Overview</TabsTrigger>
                     <TabsTrigger value="technical">Technical</TabsTrigger>
                     <TabsTrigger value="soft">Soft Skills</TabsTrigger>
                     <TabsTrigger value="analytics">Analytics</TabsTrigger>
+                    <TabsTrigger value="team">Team</TabsTrigger>
                   </TabsList>
 
                   <TabsContent value="overview" className="space-y-4">
-                    {skillsData.map((category, idx) => (
+                    {processedSkillsData.map((category, idx) => (
                       <Card key={idx}>
                         <CardHeader>
                           <CardTitle className="flex items-center gap-2">
@@ -237,25 +365,34 @@ export default function SeedbleSkillsDashboard() {
                           </CardTitle>
                         </CardHeader>
                         <CardContent>
-                          <div className="space-y-4">
-                            {category.skills.map((skill, skillIdx) => (
-                              <div key={skillIdx} className="flex items-center justify-between">
-                                <div className="flex-1">
-                                  <div className="flex items-center gap-2 mb-1">
-                                    <span className="font-medium">{skill.name}</span>
-                                    <Badge variant="secondary" className="text-xs">
-                                      {skill.projects} projects
-                                    </Badge>
-                                    {skill.trend === "up" && <TrendingUp className="w-4 h-4 text-green-500" />}
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <Progress value={skill.level * 20} className="flex-1" />
-                                    <span className="text-sm text-gray-600">Level {skill.level}/5</span>
+                          {category.skills.length > 0 ? (
+                            <div className="space-y-4">
+                              {category.skills.map((skill, skillIdx) => (
+                                <div key={skillIdx} className="flex items-center justify-between">
+                                  <div className="flex-1">
+                                    <div className="flex items-center gap-2 mb-1">
+                                      <span className="font-medium">{skill.name}</span>
+                                      <Badge variant="secondary" className="text-xs">
+                                        {skill.projects} projects
+                                      </Badge>
+                                      {skill.trend === "up" && <TrendingUp className="w-4 h-4 text-green-500" />}
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <Progress value={skill.level * 20} className="flex-1" />
+                                      <span className="text-sm text-gray-600">Level {skill.level}/5</span>
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
-                            ))}
-                          </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="text-center py-8">
+                              <p className="text-gray-500">No skills found in this category</p>
+                              <Button variant="outline" className="mt-4" onClick={() => setShowAssessmentWizard(true)}>
+                                Start Skills Assessment
+                              </Button>
+                            </div>
+                          )}
                         </CardContent>
                       </Card>
                     ))}
@@ -268,29 +405,40 @@ export default function SeedbleSkillsDashboard() {
                         <CardDescription>Your technical competencies and development areas</CardDescription>
                       </CardHeader>
                       <CardContent>
-                        <div className="space-y-4">
-                          {skillsData[0].skills.map((skill, idx) => (
-                            <div key={idx} className="p-4 border rounded-lg">
-                              <div className="flex items-center justify-between mb-2">
-                                <h4 className="font-medium">{skill.name}</h4>
-                                <div className="flex items-center gap-1">
-                                  {[...Array(5)].map((_, i) => (
-                                    <Star
-                                      key={i}
-                                      className={`w-4 h-4 ${
-                                        i < skill.level ? "fill-yellow-400 text-yellow-400" : "text-gray-300"
-                                      }`}
-                                    />
-                                  ))}
+                        {processedSkillsData[0].skills.length > 0 ? (
+                          <div className="space-y-4">
+                            {processedSkillsData[0].skills.map((skill, idx) => (
+                              <div key={idx} className="p-4 border rounded-lg">
+                                <div className="flex items-center justify-between mb-2">
+                                  <h4 className="font-medium">{skill.name}</h4>
+                                  <div className="flex items-center gap-1">
+                                    {[...Array(5)].map((_, i) => (
+                                      <Star
+                                        key={i}
+                                        className={`w-4 h-4 ${
+                                          i < skill.level ? "fill-yellow-400 text-yellow-400" : "text-gray-300"
+                                        }`}
+                                      />
+                                    ))}
+                                  </div>
                                 </div>
+                                <p className="text-sm text-gray-600 mb-2">
+                                  Used in {skill.projects} projects this year
+                                </p>
+                                <Button variant="outline" size="sm">
+                                  Request Peer Review
+                                </Button>
                               </div>
-                              <p className="text-sm text-gray-600 mb-2">Used in {skill.projects} projects this year</p>
-                              <Button variant="outline" size="sm">
-                                Request Peer Review
-                              </Button>
-                            </div>
-                          ))}
-                        </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-center py-8">
+                            <p className="text-gray-500">No technical skills found</p>
+                            <Button variant="outline" className="mt-4" onClick={() => setShowAssessmentWizard(true)}>
+                              Start Skills Assessment
+                            </Button>
+                          </div>
+                        )}
                       </CardContent>
                     </Card>
                   </TabsContent>
@@ -302,26 +450,38 @@ export default function SeedbleSkillsDashboard() {
                         <CardDescription>Behavioral and interpersonal competencies</CardDescription>
                       </CardHeader>
                       <CardContent>
-                        <div className="space-y-4">
-                          {skillsData[1].skills.map((skill, idx) => (
-                            <div key={idx} className="p-4 border rounded-lg">
-                              <div className="flex items-center justify-between mb-2">
-                                <h4 className="font-medium">{skill.name}</h4>
-                                <Badge variant="outline">Level {skill.level}</Badge>
+                        {processedSkillsData[1].skills.length > 0 ? (
+                          <div className="space-y-4">
+                            {processedSkillsData[1].skills.map((skill, idx) => (
+                              <div key={idx} className="p-4 border rounded-lg">
+                                <div className="flex items-center justify-between mb-2">
+                                  <h4 className="font-medium">{skill.name}</h4>
+                                  <Badge variant="outline">Level {skill.level}</Badge>
+                                </div>
+                                <Progress value={skill.level * 20} className="mb-2" />
+                                <p className="text-sm text-gray-600">
+                                  Demonstrated in {skill.projects} collaborative projects
+                                </p>
                               </div>
-                              <Progress value={skill.level * 20} className="mb-2" />
-                              <p className="text-sm text-gray-600">
-                                Demonstrated in {skill.projects} collaborative projects
-                              </p>
-                            </div>
-                          ))}
-                        </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-center py-8">
+                            <p className="text-gray-500">No soft skills found</p>
+                            <Button variant="outline" className="mt-4" onClick={() => setShowAssessmentWizard(true)}>
+                              Start Skills Assessment
+                            </Button>
+                          </div>
+                        )}
                       </CardContent>
                     </Card>
                   </TabsContent>
 
                   <TabsContent value="analytics">
                     <SkillAnalytics />
+                  </TabsContent>
+                  <TabsContent value="team" className="space-y-6">
+                    <TeamDashboard />
                   </TabsContent>
                 </Tabs>
               </div>
@@ -413,12 +573,14 @@ export default function SeedbleSkillsDashboard() {
                         <div key={idx} className="p-3 border rounded-lg hover:bg-gray-50 cursor-pointer">
                           <div className="flex items-start gap-3">
                             <div className={`p-2 rounded-lg ${circle.color}`}>
-                              <circle.icon className="w-4 h-4 text-white" />
+                              {circle.icon === "Brain" && <Brain className="w-4 h-4 text-white" />}
+                              {circle.icon === "Code" && <Code className="w-4 h-4 text-white" />}
+                              {circle.icon === "Target" && <Target className="w-4 h-4 text-white" />}
                             </div>
                             <div className="flex-1 min-w-0">
-                              <h4 className="font-medium text-sm">{circle.title}</h4>
+                              <h4 className="font-medium text-sm">{circle.name}</h4>
                               <p className="text-xs text-gray-600 mt-1 line-clamp-2">{circle.description}</p>
-                              <p className="text-xs text-gray-500 mt-2">{circle.members} members</p>
+                              <p className="text-xs text-gray-500 mt-2">{circle.member_count} members</p>
                             </div>
                           </div>
                         </div>
@@ -428,15 +590,22 @@ export default function SeedbleSkillsDashboard() {
                 </Card>
               </div>
             </div>
-          )}
-
-          {activeView === "reviews" && <PeerReviewWorkflow />}
-
-          {activeView === "management" && <ReviewManagement />}
-
-          {/* Add other views as needed */}
+          ) : activeView === "projects" ? (
+            <ProjectManagement />
+          ) : activeView === "reviews" ? (
+            <PeerReviewWorkflow />
+          ) : activeView === "management" ? (
+            <ReviewManagement />
+          ) : activeView === "assessment" ? (
+            <AssessmentDashboard onDataRefresh={refreshUserData} />
+          ) : null}
         </div>
       </div>
+
+      {/* Assessment Wizard Modal */}
+      {showAssessmentWizard && (
+        <SkillAssessmentWizard isOpen={showAssessmentWizard} onClose={handleAssessmentComplete} />
+      )}
     </div>
   )
 }
